@@ -5,9 +5,11 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TEST_API_KEY, startMockServer } from './mock-server.mjs';
+import { TEST_API_KEY, TEST_GITLAB_TOKEN, startMockServer } from './mock-server.mjs';
 
 const RUN = fileURLToPath(new URL('../src/run.mjs', import.meta.url));
+const UUID_V5 = /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const readJson = (file) => JSON.parse(readFileSync(file, 'utf8'));
 let server;
 const dirs = [];
 
@@ -35,27 +37,47 @@ function parseOutputs(text) {
 }
 
 // The mock server lives in this process, so the child must run asynchronously.
-function runAction(inputs, { event = 'pull_request', token = 'ghs_test_token' } = {}) {
+// "github" reproduces an Actions step on a pull request (event "push" for a branch
+// build), "gitlab" a GitLab CI job in a merge request pipeline (event "push" for a
+// branch pipeline) and "cli" a plain shell. The token is the platform's review token.
+function runAction(inputs, { platform = 'github', event = 'pull_request', token = platform === 'github' ? 'ghs_test_token' : TEST_GITLAB_TOKEN, env: extra = {} } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'sl-action-'));
   dirs.push(dir);
-  const eventPath = join(dir, 'event.json');
-  writeFileSync(eventPath, JSON.stringify({ pull_request: { number: 7 } }));
-  const summary = join(dir, 'summary.md');
-  const output = join(dir, 'output.txt');
-  writeFileSync(summary, '');
-  writeFileSync(output, '');
-  // Drop inherited GITHUB_*/INPUT_* variables (Windows matches names case-insensitively,
-  // and the self-test workflow itself runs inside Actions).
-  const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(GITHUB_|INPUT_)/i.test(key)));
+  // Drop inherited CI variables (Windows matches names case-insensitively, and the
+  // self-test workflow itself runs inside Actions).
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(GITHUB_|INPUT_|GITLAB_|CI_|SITELEMETRY_)/i.test(key)));
   const env = {
     ...inherited,
     INPUT_TARGET: 'https://ok.example', INPUT_API_KEY: TEST_API_KEY, INPUT_AUDIT: 'security', INPUT_PROFILE: '',
     INPUT_FAIL_ON: 'high', INPUT_SARIF_FILE: 'out/sitelemetry.sarif', INPUT_COMMENT: 'true', INPUT_BASE_URL: server.url,
     INPUT_TIMEOUT_MINUTES: '1', ...inputs,
-    GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: output, GITHUB_EVENT_NAME: event, GITHUB_EVENT_PATH: eventPath,
-    GITHUB_REPOSITORY: 'octo/site', GITHUB_TOKEN: token, GITHUB_API_URL: server.url, GITHUB_WORKSPACE: dir,
     SITELEMETRY_ACTION_MIN_WAIT_MS: '10'
   };
+  let summary;
+  let output;
+  if (platform === 'github') {
+    const eventPath = join(dir, 'event.json');
+    writeFileSync(eventPath, JSON.stringify({ pull_request: { number: 7 } }));
+    summary = join(dir, 'summary.md');
+    output = join(dir, 'output.txt');
+    writeFileSync(summary, '');
+    writeFileSync(output, '');
+    Object.assign(env, {
+      GITHUB_ACTIONS: 'true', GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: output, GITHUB_EVENT_NAME: event, GITHUB_EVENT_PATH: eventPath,
+      GITHUB_REPOSITORY: 'octo/site', GITHUB_TOKEN: token, GITHUB_API_URL: server.url, GITHUB_WORKSPACE: dir
+    });
+  } else {
+    summary = join(dir, extra.SITELEMETRY_SUMMARY_FILE || 'sitelemetry-summary.md');
+    output = join(dir, extra.SITELEMETRY_OUTPUT_FILE || 'sitelemetry.env');
+    if (platform === 'gitlab') {
+      Object.assign(env, {
+        GITLAB_CI: 'true', CI: 'true', CI_PROJECT_DIR: dir, CI_PROJECT_ID: '42', CI_API_V4_URL: `${server.url}/api/v4`,
+        CI_PROJECT_URL: 'https://gitlab.example/octo/site', CI_JOB_TOKEN: 'job-token-never-sent', SITELEMETRY_GITLAB_TOKEN: token,
+        ...(event === 'push' ? { CI_PIPELINE_SOURCE: 'push' } : { CI_PIPELINE_SOURCE: 'merge_request_event', CI_MERGE_REQUEST_IID: '7' })
+      });
+    }
+  }
+  Object.assign(env, extra);
   for (const key of Object.keys(env)) if (env[key] == null) delete env[key];
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [RUN], { env, cwd: dir });
@@ -67,7 +89,8 @@ function runAction(inputs, { event = 'pull_request', token = 'ghs_test_token' } 
     child.on('error', (error) => { clearTimeout(timer); reject(error); });
     child.on('close', (code) => {
       clearTimeout(timer);
-      resolve({ code, stdout, stderr, summary: readFileSync(summary, 'utf8'), outputs: parseOutputs(readFileSync(output, 'utf8')), dir });
+      const read = (file) => (existsSync(file) ? readFileSync(file, 'utf8') : '');
+      resolve({ code, stdout, stderr, summary: read(summary), outputs: parseOutputs(read(output)), dir });
     });
   });
 }
@@ -261,4 +284,106 @@ test('invalid inputs block the run without calling the server', async () => {
   assert.match(result.summary, /"target" input is required/);
   assert.match(result.summary, /Unsupported "audit" value/);
   assert.equal(server.calls.length, calls);
+});
+
+test('GitLab CI: writes the security report, dotenv outputs, the summary file and one merge request note', async () => {
+  const first = await runAction({}, { platform: 'gitlab' });
+  assert.equal(first.code, 1, `one high finding fails with fail-on high\n${first.stdout}\n${first.stderr}`);
+  const sarifPath = join(first.dir, 'out', 'sitelemetry.sarif');
+  assert.deepEqual(first.outputs, { SCORE: '82', FINDINGS_TOTAL: '4', FINDINGS_CRITICAL: '0', FINDINGS_HIGH: '1', SARIF_FILE: sarifPath, STATUS: 'completed', REPORT_URL: '' });
+  assert.equal(readFileSync(join(first.dir, 'sitelemetry.env'), 'utf8'), `SCORE=82\nFINDINGS_TOTAL=4\nFINDINGS_CRITICAL=0\nFINDINGS_HIGH=1\nSARIF_FILE=${sarifPath}\nSTATUS=completed\nREPORT_URL=\n`);
+  assert.ok(existsSync(sarifPath));
+  assert.equal(readJson(sarifPath).runs[0].results.length, 4, 'SARIF is still written');
+  assert.match(first.summary, /^## Sitelemetry Security audit: https:\/\/ok\.example/);
+  assert.match(first.summary, /82\/100 \(B\)/);
+  assert.match(first.summary, /HSTS header is missing/);
+
+  // No GitHub workflow commands, and the key never reaches the log on either stream.
+  const logs = `${first.stdout}\n${first.stderr}`;
+  assert.doesNotMatch(logs, /::(add-mask|error|warning|notice)::/);
+  assert.equal(logs.includes(TEST_API_KEY), false, 'the key is never echoed');
+  assert.equal(logs.includes(TEST_GITLAB_TOKEN), false, 'the GitLab token is never echoed');
+  assert.match(first.stdout, /Sitelemetry audit \S+ on GitLab CI: security audit of https:\/\/ok\.example/);
+  assert.match(first.stdout, /Audit accepted as job mj_/);
+  assert.match(first.stderr, /^ERROR: Sitelemetry security audit: completed, score 82\/100, 4 finding\(s\)\. Findings at or above "high" severity fail this job\.$/m);
+
+  const report = readJson(join(first.dir, 'gl-sast-report.json'));
+  assert.equal(report.version, '15.1.4');
+  assert.deepEqual(Object.keys(report), ['version', 'scan', 'vulnerabilities']);
+  assert.deepEqual([report.scan.type, report.scan.status, report.scan.analyzer.id, report.scan.scanner.id], ['sast', 'success', 'sitelemetry-audit', 'sitelemetry']);
+  assert.match(report.scan.start_time, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/);
+  assert.match(report.scan.end_time, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/);
+  assert.equal(report.vulnerabilities.length, 4);
+  assert.deepEqual(report.vulnerabilities.map((v) => v.severity), ['High', 'Medium', 'Low', 'Info']);
+  assert.deepEqual(report.vulnerabilities[2].location, { file: 'https://ok.example/robots.txt', start_line: 1 });
+  assert.equal(report.vulnerabilities[0].identifiers[0].value, 'sf2:security-audit:id:http-headers.hsts-missing:loc:1a2b3c4d5e6f7a8b9c0d1e2f3a4b:occ:1');
+  for (const vulnerability of report.vulnerabilities) {
+    assert.match(vulnerability.id, UUID_V5);
+    assert.deepEqual(vulnerability.scanner, { id: 'sitelemetry', name: 'Sitelemetry' });
+    assert.equal(vulnerability.category, 'sast');
+  }
+
+  assert.equal(server.userNotes().length, 1);
+  assert.ok(server.userNotes()[0].body.startsWith('<!-- sitelemetry-audit -->\n<!-- sitelemetry-audit:kind=security -->\n'));
+  assert.match(first.stdout, /Posted the merge request note: https:\/\/gitlab\.example\/octo\/site\/-\/merge_requests\/7#note_2/);
+  const noteCalls = server.calls.filter((call) => call.path.startsWith('/api/v4/'));
+  assert.ok(noteCalls.length >= 2);
+  assert.ok(noteCalls.every((call) => call.path.startsWith('/api/v4/projects/42/merge_requests/7/notes') && call.headers['private-token'] === TEST_GITLAB_TOKEN && !call.headers.authorization));
+
+  const second = await runAction({}, { platform: 'gitlab' });
+  assert.equal(second.code, 1);
+  assert.equal(server.userNotes().length, 1, 'the existing note is updated instead of duplicated');
+  assert.equal(server.userNotes()[0].updated, true);
+  assert.match(second.stdout, /Updated the merge request note/);
+  assert.deepEqual(readJson(join(second.dir, 'gl-sast-report.json')).vulnerabilities.map((v) => v.id), report.vulnerabilities.map((v) => v.id), 'vulnerability ids are stable across runs');
+});
+
+test('GitLab CI: the note is skipped without an access token, on branch pipelines and with comment=false', async () => {
+  const before = server.userNotes().length;
+  const apiCalls = () => server.calls.filter((call) => call.path.startsWith('/api/v4/')).length;
+  const calls = apiCalls();
+  const noToken = await runAction({ INPUT_TARGET: 'https://sync.example' }, { platform: 'gitlab', token: null });
+  assert.equal(noToken.outputs.STATUS, 'completed');
+  assert.match(noToken.stdout, /Skipping the merge request note: SITELEMETRY_GITLAB_TOKEN is not set\. CI_JOB_TOKEN cannot create notes/);
+  const branch = await runAction({ INPUT_TARGET: 'https://sync.example' }, { platform: 'gitlab', event: 'push' });
+  assert.equal(branch.outputs.STATUS, 'completed');
+  await runAction({ INPUT_TARGET: 'https://sync.example', INPUT_COMMENT: 'false' }, { platform: 'gitlab' });
+  assert.equal(server.userNotes().length, before);
+  assert.equal(apiCalls(), calls, 'no GitLab API request is made');
+});
+
+test('GitLab CI: plan gates link to pricing with utm_source=gitlab-ci and honor the output file variables', async () => {
+  const result = await runAction({ INPUT_TARGET: 'https://plan.example', INPUT_AUDIT: 'seo', INPUT_COMMENT: 'false' }, {
+    platform: 'gitlab', env: { SITELEMETRY_OUTPUT_FILE: 'out/vars.env', SITELEMETRY_SUMMARY_FILE: 'out/report.md' }
+  });
+  assert.equal(result.code, 0, result.stdout);
+  assert.deepEqual([result.outputs.STATUS, result.outputs.FINDINGS_TOTAL, result.outputs.SCORE], ['plan_required', '0', '']);
+  assert.ok(existsSync(join(result.dir, 'out', 'vars.env')));
+  assert.match(result.summary, /Not run - this audit kind is not included in the connected plan/);
+  assert.match(result.summary, /### Plan and usage/);
+  assert.ok(result.summary.includes('https://sitelemetry.com/pricing?utm_source=gitlab-ci&utm_medium=ci'));
+  assert.equal(result.summary.includes('utm_source=github-action'), false);
+  assert.match(result.stdout, /^WARNING: Sitelemetry seo audit: plan_required, 0 finding\(s\)\./m);
+  const report = readJson(join(result.dir, 'gl-sast-report.json'));
+  assert.equal(report.scan.status, 'failure');
+  assert.deepEqual(report.vulnerabilities, []);
+});
+
+test('plain CLI use writes the dotenv and summary files; the GitLab report only on request', async () => {
+  const plain = await runAction({ INPUT_TARGET: 'https://sync.example', INPUT_FAIL_ON: 'none' }, { platform: 'cli' });
+  assert.equal(plain.code, 0, `${plain.stdout}\n${plain.stderr}`);
+  assert.deepEqual([plain.outputs.STATUS, plain.outputs.SCORE, plain.outputs.SARIF_FILE], ['completed', '82', join(plain.dir, 'out', 'sitelemetry.sarif')]);
+  assert.match(plain.summary, /82\/100 \(B\)/);
+  assert.equal(existsSync(join(plain.dir, 'gl-sast-report.json')), false);
+  assert.match(plain.stdout, /Sitelemetry audit \S+ on CLI:/);
+  assert.match(plain.stdout, /^NOTICE: Sitelemetry security audit: completed, score 82\/100, 4 finding\(s\)$/m);
+  assert.doesNotMatch(`${plain.stdout}\n${plain.stderr}`, /::notice::|merge request|pull request/);
+  assert.equal(`${plain.stdout}\n${plain.stderr}`.includes(TEST_API_KEY), false);
+
+  const requested = await runAction({ INPUT_TARGET: 'https://sync.example', INPUT_FAIL_ON: 'none', INPUT_GITLAB_REPORT: 'reports/gl-sast-report.json' }, { platform: 'cli' });
+  assert.equal(readJson(join(requested.dir, 'reports', 'gl-sast-report.json')).vulnerabilities.length, 4);
+  const flagged = await runAction({ INPUT_TARGET: 'https://sync.example', INPUT_FAIL_ON: 'none', INPUT_GITLAB_REPORT: 'true' }, { platform: 'cli' });
+  assert.equal(readJson(join(flagged.dir, 'gl-sast-report.json')).scan.type, 'sast');
+  const disabled = await runAction({ INPUT_TARGET: 'https://sync.example', INPUT_FAIL_ON: 'none', INPUT_COMMENT: 'false', INPUT_GITLAB_REPORT: 'false' }, { platform: 'gitlab' });
+  assert.equal(existsSync(join(disabled.dir, 'gl-sast-report.json')), false, 'INPUT_GITLAB_REPORT=false disables the report on GitLab too');
 });

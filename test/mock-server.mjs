@@ -1,8 +1,10 @@
-// Local stand-in for the hosted MCP endpoint, /api/plans and the GitHub comments API.
+// Local stand-in for the hosted MCP endpoint, /api/plans, the GitHub comments API
+// and the GitLab merge request notes API.
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
 
 export const TEST_API_KEY = 'sl_test_key_123456';
+export const TEST_GITLAB_TOKEN = 'glpat-test-token-abc';
 const TOOLS = ['audit_security', 'audit_seo', 'audit_ai_visibility', 'audit_integrations', 'audit_accessibility', 'audit_performance', 'audit_full'];
 export const fixture = (name) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'));
 
@@ -24,9 +26,12 @@ function json(res, status, payload, headers = {}) {
 export async function startMockServer({ apiKey = TEST_API_KEY, runningPolls = 2, tools = TOOLS } = {}) {
   const calls = [];
   const comments = [];
+  // GitLab lists system notes with the others; the client must skip them.
+  const notes = [{ id: 1, system: true, body: 'changed the description' }];
   const jobs = new Map();
   let busyCalls = 0;
   let nextCommentId = 1;
+  let nextNoteId = 2;
   let base = '';
 
   function handleCall(message, reply, rpcError, res) {
@@ -117,6 +122,28 @@ export async function startMockServer({ apiKey = TEST_API_KEY, runningPolls = 2,
     return json(res, 404, { message: 'Not Found' });
   }
 
+  // GitLab REST v4: list, create and update merge request notes. A personal or
+  // project access token arrives as PRIVATE-TOKEN; CI_JOB_TOKEN is not accepted.
+  function handleGitlab(req, res, url, body) {
+    if (req.headers['private-token'] !== TEST_GITLAB_TOKEN) return json(res, 401, { message: '401 Unauthorized' });
+    const list = /^\/api\/v4\/projects\/[^/]+\/merge_requests\/\d+\/notes$/.test(url.pathname);
+    const single = /^\/api\/v4\/projects\/[^/]+\/merge_requests\/\d+\/notes\/(\d+)$/.exec(url.pathname);
+    if (req.method === 'GET' && list) return json(res, 200, notes);
+    if (req.method === 'POST' && list) {
+      const note = { id: nextNoteId++, system: false, body: JSON.parse(body).body };
+      notes.push(note);
+      return json(res, 201, note);
+    }
+    if (req.method === 'PUT' && single) {
+      const note = notes.find((row) => row.id === Number(single[1]));
+      if (!note) return json(res, 404, { message: '404 Note Not Found' });
+      note.body = JSON.parse(body).body;
+      note.updated = true;
+      return json(res, 200, note);
+    }
+    return json(res, 404, { message: '404 Not Found' });
+  }
+
   const server = http.createServer(async (req, res) => {
     const body = await readBody(req);
     const url = new URL(req.url, 'http://localhost');
@@ -124,6 +151,7 @@ export async function startMockServer({ apiKey = TEST_API_KEY, runningPolls = 2,
     if (url.pathname === '/api/plans') return json(res, 200, fixture('plans.json'));
     if (url.pathname === '/mcp') return handleMcp(req, res, body);
     if (url.pathname.startsWith('/repos/')) return handleGithub(req, res, url, body);
+    if (url.pathname.startsWith('/api/v4/')) return handleGitlab(req, res, url, body);
     return json(res, 404, { error: 'not found' });
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -132,6 +160,8 @@ export async function startMockServer({ apiKey = TEST_API_KEY, runningPolls = 2,
     url: base,
     calls,
     comments,
+    notes,
+    userNotes: () => notes.filter((note) => !note.system),
     toolCalls: () => calls.filter((call) => call.path === '/mcp' && call.body?.method === 'tools/call'),
     close: () => new Promise((resolve) => server.close(resolve))
   };

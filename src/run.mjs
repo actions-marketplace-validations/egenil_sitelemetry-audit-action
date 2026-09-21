@@ -1,21 +1,29 @@
 #!/usr/bin/env node
-// Entry point of the composite action. Inputs arrive as INPUT_* environment variables.
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+// Entry point of the GitHub Action, the GitLab CI/CD component and plain CLI use.
+// Inputs arrive as INPUT_* environment variables on every platform.
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { AUDIT_TOOLS, runAudit } from './audit.mjs';
-import { annotate, appendSummary, mask, pullRequestNumber, setOutput, upsertPullRequestComment } from './github.mjs';
+import { pullRequestNumber, upsertPullRequestComment } from './github.mjs';
+import { mergeRequestContext, upsertMergeRequestNote } from './gitlab.mjs';
+import { buildGitlabReport } from './gitlab-report.mjs';
 import { ACTION_VERSION, McpRpcError, createMcpClient } from './mcp-client.mjs';
 import { FAIL_ON, exitCodeFor, interpretOutcome } from './outcome.mjs';
+import { DEFAULT_GITLAB_REPORT_FILE, annotateFor, createPlatformIo, detectPlatform, workspaceDir, writeTextFile } from './platform.mjs';
 import { fetchPlans } from './plans.mjs';
 import { kindMarker, renderComment, renderReport } from './report.mjs';
 import { buildSarif } from './sarif.mjs';
+
+const PLATFORM_LABELS = Object.freeze({ github: 'GitHub Actions', gitlab: 'GitLab CI', cli: 'CLI' });
 
 export function readInputs(env = process.env) {
   const get = (name, fallback = '') => {
     const value = env[`INPUT_${name}`];
     return typeof value === 'string' && value.trim() ? value.trim() : fallback;
   };
+  // INPUT_GITLAB_REPORT: "true" writes gl-sast-report.json, a path writes that
+  // file, "false" disables the report (also on GitLab), unset follows the platform.
+  const gitlabReport = get('GITLAB_REPORT');
   const inputs = {
     target: get('TARGET'),
     apiKey: get('API_KEY'),
@@ -25,7 +33,8 @@ export function readInputs(env = process.env) {
     sarifFile: get('SARIF_FILE', 'sitelemetry.sarif'),
     comment: get('COMMENT', 'true').toLowerCase() !== 'false',
     baseUrl: get('BASE_URL', 'https://sitelemetry.com'),
-    timeoutMinutes: Number(get('TIMEOUT_MINUTES', '20'))
+    timeoutMinutes: Number(get('TIMEOUT_MINUTES', '20')),
+    gitlabReport: gitlabReport.toLowerCase() === 'false' ? false : gitlabReport.toLowerCase() === 'true' ? DEFAULT_GITLAB_REPORT_FILE : gitlabReport || null
   };
   const problems = [];
   if (!inputs.target) problems.push('The "target" input is required.');
@@ -69,17 +78,49 @@ async function execute(inputs, log) {
   return run;
 }
 
+// One review comment per audit kind: a pull request comment on GitHub, a merge
+// request note on GitLab. Reruns update the existing one through its marker.
+async function postReviewComment({ platform, env, model, plans, io, log }) {
+  const marker = kindMarker(model.kind);
+  const body = () => renderComment(model, { plans, platform });
+  if (platform === 'github') {
+    const pullNumber = pullRequestNumber(env);
+    if (!pullNumber) return;
+    if (!env.GITHUB_TOKEN || !env.GITHUB_REPOSITORY) return log('Skipping the pull request comment: GITHUB_TOKEN is not available to this step.');
+    try {
+      const saved = await upsertPullRequestComment({ apiUrl: env.GITHUB_API_URL, repository: env.GITHUB_REPOSITORY, token: env.GITHUB_TOKEN, pullNumber, body: body(), marker });
+      log(`${saved.updated ? 'Updated' : 'Posted'} the pull request comment${saved.url ? `: ${saved.url}` : ''}.`);
+    } catch (error) {
+      io.annotate('warning', `Could not post the pull request comment: ${error.message}`);
+    }
+    return;
+  }
+  if (platform !== 'gitlab') return;
+  const mr = mergeRequestContext(env);
+  if (!mr) return;
+  if (!mr.token) return log('Skipping the merge request note: SITELEMETRY_GITLAB_TOKEN is not set. CI_JOB_TOKEN cannot create notes; add a project access token with the api scope as a masked CI/CD variable named SITELEMETRY_GITLAB_TOKEN.');
+  try {
+    const saved = await upsertMergeRequestNote({ ...mr, body: body(), marker });
+    log(`${saved.updated ? 'Updated' : 'Posted'} the merge request note${saved.url ? `: ${saved.url}` : ''}.`);
+  } catch (error) {
+    io.annotate('warning', `Could not post the merge request note: ${error.message}`);
+  }
+}
+
 export async function main(env = process.env) {
   const log = (message) => console.log(message);
+  const platform = detectPlatform(env);
+  const io = createPlatformIo(platform, env, log);
   const { inputs, problems } = readInputs(env);
-  mask(inputs.apiKey);
+  io.mask(inputs.apiKey);
+  const startedAt = new Date();
   const kind = AUDIT_TOOLS[inputs.audit] ? inputs.audit : 'security';
   const target = inputs.target || '(missing)';
   let model;
   if (problems.length) {
     model = { ...interpretOutcome({ outcome: 'error', error: new Error(problems.join(' ')) }, { kind, target }), reason: 'invalid_inputs' };
   } else {
-    log(`Sitelemetry audit action ${ACTION_VERSION}: ${kind} audit of ${target}`);
+    log(`Sitelemetry audit ${ACTION_VERSION} on ${PLATFORM_LABELS[platform]}: ${kind} audit of ${target}`);
     try {
       model = interpretOutcome(await execute(inputs, log), { kind, target });
     } catch (error) {
@@ -89,48 +130,41 @@ export async function main(env = process.env) {
   const wantsPlans = ['quota_exhausted', 'plan_required'].includes(model.status) || model.plan === 'free';
   const plans = wantsPlans && !problems.length ? await fetchPlans(inputs.baseUrl) : null;
 
-  const sarifPath = resolve(env.GITHUB_WORKSPACE || process.cwd(), inputs.sarifFile);
-  mkdirSync(dirname(sarifPath), { recursive: true });
-  writeFileSync(sarifPath, `${JSON.stringify(buildSarif(model), null, 2)}\n`);
+  const workspace = workspaceDir(platform, env);
+  const sarifPath = resolve(workspace, inputs.sarifFile);
+  writeTextFile(sarifPath, `${JSON.stringify(buildSarif(model), null, 2)}\n`);
   log(`SARIF written to ${sarifPath} (${model.findings.length} result(s)).`);
-
-  appendSummary(renderReport(model, { plans }), env.GITHUB_STEP_SUMMARY);
-  const outputs = env.GITHUB_OUTPUT;
-  setOutput('score', model.score ?? '', outputs);
-  setOutput('findings-total', model.total, outputs);
-  setOutput('findings-critical', model.counts.critical, outputs);
-  setOutput('findings-high', model.counts.high, outputs);
-  setOutput('sarif-file', sarifPath, outputs);
-  setOutput('status', model.status, outputs);
-  if (model.reportUrl) setOutput('report-url', model.reportUrl, outputs);
-
-  const pullNumber = pullRequestNumber(env);
-  if (inputs.comment && pullNumber && env.GITHUB_TOKEN && env.GITHUB_REPOSITORY) {
-    try {
-      const saved = await upsertPullRequestComment({
-        apiUrl: env.GITHUB_API_URL, repository: env.GITHUB_REPOSITORY, token: env.GITHUB_TOKEN, pullNumber,
-        body: renderComment(model, { plans }), marker: kindMarker(model.kind)
-      });
-      log(`${saved.updated ? 'Updated' : 'Posted'} the pull request comment${saved.url ? `: ${saved.url}` : ''}.`);
-    } catch (error) {
-      annotate('warning', `Could not post the pull request comment: ${error.message}`);
-    }
-  } else if (inputs.comment && pullNumber) {
-    log('Skipping the pull request comment: GITHUB_TOKEN is not available to this step.');
+  const gitlabReportFile = inputs.gitlabReport ?? (platform === 'gitlab' ? DEFAULT_GITLAB_REPORT_FILE : null);
+  if (gitlabReportFile) {
+    const reportPath = resolve(workspace, gitlabReportFile);
+    writeTextFile(reportPath, `${JSON.stringify(buildGitlabReport(model, { startedAt, endedAt: new Date() }), null, 2)}\n`);
+    log(`GitLab security report written to ${reportPath} (${model.findings.length} vulnerability(ies)).`);
   }
+
+  io.summary(renderReport(model, { plans, platform }));
+  io.outputs({
+    score: model.score ?? '',
+    'findings-total': model.total,
+    'findings-critical': model.counts.critical,
+    'findings-high': model.counts.high,
+    'sarif-file': sarifPath,
+    status: model.status,
+    ...(model.reportUrl ? { 'report-url': model.reportUrl } : {})
+  });
+  if (inputs.comment) await postReviewComment({ platform, env, model, plans, io, log });
 
   const code = exitCodeFor(model, inputs.failOn);
   const headline = `Sitelemetry ${model.kind} audit: ${model.status}${model.score != null ? `, score ${model.score}/100` : ''}, ${model.total} finding(s)`;
-  if (model.status === 'blocked') annotate(code ? 'error' : 'warning', `${headline}. ${model.message}`);
-  else if (model.status === 'completed' || model.status === 'partial') annotate(code ? 'error' : 'notice', code ? `${headline}. Findings at or above "${inputs.failOn}" severity fail this job.` : headline);
-  else annotate('warning', `${headline}. ${model.message}`);
+  if (model.status === 'blocked') io.annotate(code ? 'error' : 'warning', `${headline}. ${model.message}`);
+  else if (model.status === 'completed' || model.status === 'partial') io.annotate(code ? 'error' : 'notice', code ? `${headline}. Findings at or above "${inputs.failOn}" severity fail this job.` : headline);
+  else io.annotate('warning', `${headline}. ${model.message}`);
   return code;
 }
 
 const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 if (invokedDirectly) {
   main().then((code) => { process.exitCode = code; }, (error) => {
-    annotate('error', `Sitelemetry audit action failed: ${error?.stack || error}`);
+    annotateFor(detectPlatform())('error', `Sitelemetry audit action failed: ${error?.stack || error}`);
     process.exitCode = 1;
   });
 }

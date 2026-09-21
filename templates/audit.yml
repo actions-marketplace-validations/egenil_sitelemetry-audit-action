@@ -1,0 +1,100 @@
+# Sitelemetry audit: GitLab CI/CD component.
+#
+#   include:
+#     - component: gitlab.com/sitelemetry/audit/audit@0.2.0
+#       inputs:
+#         target: https://www.example.com
+#
+# The job runs the same zero-dependency client as the GitHub Action
+# (https://github.com/egenil/sitelemetry-audit-action). With GITLAB_CI set it writes
+# a SARIF file, a GitLab SAST security report (gl-sast-report.json), the outputs as a
+# dotenv report (sitelemetry.env) and the markdown report (sitelemetry-summary.md),
+# and posts or updates one merge request note when SITELEMETRY_GITLAB_TOKEN is set.
+# Audit only websites you own or are authorized to test.
+spec:
+  inputs:
+    target:
+      description: Website URL or domain to audit. Audit only sites you own or are authorized to test.
+      type: string
+    api_key:
+      description: Sitelemetry MCP API key. Defaults to the SITELEMETRY_API_KEY CI/CD variable; store it masked.
+      type: string
+      default: $SITELEMETRY_API_KEY
+    audit:
+      description: Audit kind.
+      type: string
+      default: security
+      options: [security, seo, ai_visibility, integrations, accessibility, performance, full]
+    profile:
+      description: Optional security depth profile (passive, baseline, deep, all) for security and full audits. Must be included in the connected plan.
+      type: string
+      default: ''
+    fail_on:
+      description: Fail the job when a finding at or above this severity is reported.
+      type: string
+      default: high
+      options: [none, low, medium, high, critical]
+    sarif_file:
+      description: SARIF 2.1.0 output path, relative to the project directory.
+      type: string
+      default: sitelemetry.sarif
+    comment:
+      description: Post or update one merge request note with the report. Needs the SITELEMETRY_GITLAB_TOKEN CI/CD variable.
+      type: string
+      default: 'true'
+      options: ['true', 'false']
+    base_url:
+      description: Sitelemetry base URL.
+      type: string
+      default: https://sitelemetry.com
+    timeout_minutes:
+      description: Total time budget for starting and polling the audit.
+      type: number
+      default: 20
+    stage:
+      description: Pipeline stage of the job.
+      type: string
+      default: test
+    image:
+      description: Container image with Node.js 20 or newer.
+      type: string
+      default: node:24-alpine
+---
+sitelemetry-audit:
+  stage: $[[ inputs.stage ]]
+  image: $[[ inputs.image ]]
+  variables:
+    # The audit runs against the live target; the repository is not needed.
+    GIT_STRATEGY: none
+    INPUT_TARGET: $[[ inputs.target ]]
+    INPUT_API_KEY: $[[ inputs.api_key ]]
+    INPUT_AUDIT: $[[ inputs.audit ]]
+    INPUT_PROFILE: $[[ inputs.profile ]]
+    INPUT_FAIL_ON: $[[ inputs.fail_on ]]
+    INPUT_SARIF_FILE: $[[ inputs.sarif_file ]]
+    INPUT_COMMENT: $[[ inputs.comment ]]
+    INPUT_BASE_URL: $[[ inputs.base_url ]]
+    INPUT_TIMEOUT_MINUTES: $[[ inputs.timeout_minutes ]]
+  script:
+    - |
+      if ! command -v git >/dev/null 2>&1; then
+        if command -v apk >/dev/null 2>&1; then apk add --no-cache git >/dev/null
+        elif command -v apt-get >/dev/null 2>&1; then apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends git >/dev/null
+        else echo "git is required in the job image"; exit 1
+        fi
+      fi
+    - git clone --depth 1 --branch v0 https://github.com/egenil/sitelemetry-audit-action.git /tmp/sitelemetry-audit
+    - node /tmp/sitelemetry-audit/src/run.mjs
+  artifacts:
+    when: always
+    reports:
+      sast: gl-sast-report.json
+      dotenv: sitelemetry.env
+    paths:
+      - $[[ inputs.sarif_file ]]
+      - sitelemetry-summary.md
+      - gl-sast-report.json
+  allow_failure: false
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

@@ -4,7 +4,10 @@ import { formatPrice, kindLabel } from './plans.mjs';
 
 export const MARKER = '<!-- sitelemetry-audit -->';
 export const kindMarker = (kind) => `<!-- sitelemetry-audit:kind=${kind} -->`;
-export const PRICING_URL = 'https://sitelemetry.com/pricing?utm_source=github-action&utm_medium=ci';
+// The pricing link names the platform that produced the report.
+const UTM_SOURCES = Object.freeze({ github: 'github-action', gitlab: 'gitlab-ci', cli: 'cli' });
+export const pricingUrl = (platform = 'github') => `https://sitelemetry.com/pricing?utm_source=${UTM_SOURCES[platform] || UTM_SOURCES.github}&utm_medium=ci`;
+export const PRICING_URL = pricingUrl('github');
 export const APP_URL = 'https://sitelemetry.com/app';
 
 const AUDIT_LABELS = Object.freeze({
@@ -47,7 +50,7 @@ export function severityBreakdown(counts) {
 
 // Neutral plan and usage facts. Shown when a plan or quota gate stopped the audit,
 // or when the connected account is on the Free plan.
-export function renderPlanSection(model, plans) {
+export function renderPlanSection(model, plans, platform = 'github') {
   if (!['quota_exhausted', 'plan_required'].includes(model.status) && model.plan !== 'free') return [];
   const free = plans?.find((plan) => plan.id === 'free') || null;
   const paid = (plans || []).filter((plan) => plan.id !== 'free');
@@ -67,11 +70,11 @@ export function renderPlanSection(model, plans) {
       lines.push(`| ${cell(plan.label)} | ${formatPrice(plan)} | ${plan.auditKinds.map(kindLabel).join(', ') || 'see pricing'} | ${plan.moduleCount ?? 'see pricing'} | ${plan.securityScans ?? 'see pricing'} |`);
     }
   }
-  lines.push('', `Plan details: ${PRICING_URL}`, `Target verification and account settings: ${APP_URL}`);
+  lines.push('', `Plan details: ${pricingUrl(platform)}`, `Target verification and account settings: ${APP_URL}`);
   return lines;
 }
 
-export function renderReport(model, { plans = null, maxFindings = 10 } = {}) {
+export function renderReport(model, { plans = null, maxFindings = 10, platform = 'github' } = {}) {
   const lines = [`## Sitelemetry ${AUDIT_LABELS[model.kind] || model.kind} audit: ${cell(model.target, 200)}`, ''];
   lines.push(`**Status:** ${statusHeading(model)}`);
   const measured = model.status === 'completed' || model.status === 'partial';
@@ -103,7 +106,7 @@ export function renderReport(model, { plans = null, maxFindings = 10 } = {}) {
   if (model.reportUrl) lines.push('', `[Open the full report](${model.reportUrl})`);
   const step = verificationStep(model);
   if (step) lines.push('', step);
-  const planSection = renderPlanSection(model, plans);
+  const planSection = renderPlanSection(model, plans, platform);
   if (planSection.length) lines.push('', ...planSection);
   const meta = [`Audit kind: ${model.kind}`, model.tool ? `Tool: ${model.tool}` : '', model.jobId ? `Job: ${model.jobId}` : ''].filter(Boolean).join(' - ');
   lines.push('', `<sub>${meta} - Only the target URL and audit options were sent to Sitelemetry.</sub>`);
