@@ -1,0 +1,47 @@
+name: Mirror to GitLab
+
+# Pushes the default branch and every tag to the gitlab.com project that serves
+# the CI/CD Catalog component (gitlab.com/sitelemetry/audit-action). Tag pushes
+# trigger the GitLab release pipeline, which publishes that version to the
+# catalog. Requires the repository secret GITLAB_MIRROR_TOKEN: a GitLab project
+# access token with the write_repository scope. Without it the job is skipped.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for the mirror token
+        id: token
+        env:
+          GITLAB_MIRROR_TOKEN: ${{ secrets.GITLAB_MIRROR_TOKEN }}
+        run: |
+          if [ -z "${GITLAB_MIRROR_TOKEN}" ]; then
+            echo "GITLAB_MIRROR_TOKEN is not set; skipping the mirror." >> "$GITHUB_STEP_SUMMARY"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        if: steps.token.outputs.present == 'true'
+        with:
+          fetch-depth: 0
+
+      - name: Push main and tags to GitLab
+        if: steps.token.outputs.present == 'true'
+        env:
+          GITLAB_MIRROR_TOKEN: ${{ secrets.GITLAB_MIRROR_TOKEN }}
+        run: |
+          git remote add gitlab "https://oauth2:${GITLAB_MIRROR_TOKEN}@gitlab.com/sitelemetry/audit-action.git"
+          git push --force gitlab refs/remotes/origin/main:refs/heads/main
+          git push --force gitlab --tags
+          echo "Mirrored main and tags to gitlab.com/sitelemetry/audit-action." >> "$GITHUB_STEP_SUMMARY"
