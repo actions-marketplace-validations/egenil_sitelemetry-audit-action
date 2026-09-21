@@ -1,5 +1,5 @@
 name: 'Sitelemetry Audit'
-description: 'Run a Sitelemetry website audit (security, SEO, AI visibility, integrations, accessibility, performance or full) from CI. Produces SARIF, a job summary and a pull request comment.'
+description: 'Website audit from CI: security, SEO, AI visibility, accessibility, performance. SARIF, job summary and PR comment.'
 author: 'Sitelemetry'
 branding:
   icon: 'shield'
