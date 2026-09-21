@@ -1,0 +1,30 @@
+# Pipeline for the gitlab.com mirror of this repository.
+# - Runs the client tests on merge requests, the default branch and tags.
+# - Publishes a release for semantic-version tags so the component in
+#   templates/audit.yml appears in the GitLab CI/CD Catalog.
+stages: [test, release]
+
+test:
+  stage: test
+  image: node:24-alpine
+  script:
+    - node --version
+    - for f in src/*.mjs test/*.mjs; do node --check "$f"; done
+    - node --test
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  needs: [test]
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v?[0-9]+\.[0-9]+\.[0-9]+$/
+  script:
+    - echo "Publishing $CI_COMMIT_TAG to the CI/CD Catalog"
+  release:
+    tag_name: $CI_COMMIT_TAG
+    name: "Sitelemetry Audit $CI_COMMIT_TAG"
+    description: "Sitelemetry Audit CI/CD component $CI_COMMIT_TAG. Usage and inputs: docs/gitlab.md."
