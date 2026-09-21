@@ -1,7 +1,7 @@
 # Sitelemetry audit: GitLab CI/CD component.
 #
 #   include:
-#     - component: gitlab.com/sitelemetry/audit-action/audit@0.2.2
+#     - component: gitlab.com/sitelemetry/audit-action/audit@~latest
 #       inputs:
 #         target: https://www.example.com
 #

@@ -34,7 +34,7 @@ With the component from the CI/CD Catalog:
 
 ```yaml
 include:
-  - component: gitlab.com/sitelemetry/audit-action/audit@0.2.2
+  - component: gitlab.com/sitelemetry/audit-action/audit@~latest
     inputs:
       target: https://www.example.com
       audit: security
@@ -172,7 +172,7 @@ A component can only be included with `include:component` from a project on the 
 1. Create the project `sitelemetry/audit-action` on gitlab.com (group `sitelemetry`, project `audit`). The catalog requires a project description and a `README.md` at the root, and the component template must be in `templates/`.
 2. Push this repository there. **Settings > Repository > Mirroring repositories** can pull from `https://github.com/egenil/sitelemetry-audit-action.git` to keep the copy current.
 3. **Settings > General > Visibility, project features, permissions**: enable **CI/CD Catalog project**.
-4. Publish a version: tag a commit with a semantic version (`0.2.0`) and let a pipeline create the release with the `release` keyword. Releases created this way appear in the catalog; the tag becomes the component version.
+4. Publish a version: tag a commit with a semantic version (for example `v0.2.1`; include it as `audit@v0.2.1` or `audit@~latest`) and let a pipeline create the release with the `release` keyword. Releases created this way appear in the catalog; the tag becomes the component version.
 
 ```yaml
 # .gitlab-ci.yml of the gitlab.com project
@@ -188,7 +188,7 @@ create-release:
     description: "Sitelemetry audit component $CI_COMMIT_TAG"
 ```
 
-After the first release, `include: - component: gitlab.com/sitelemetry/audit-action/audit@0.2.2` resolves; `@~latest` selects the newest release. The GitHub repository stays the source: the GitLab project is a mirror plus releases.
+After the first release, `include: - component: gitlab.com/sitelemetry/audit-action/audit@~latest` resolves; `@~latest` selects the newest release. The GitHub repository stays the source: the GitLab project is a mirror plus releases.
 
 ## What the client sends and stores
 

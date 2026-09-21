@@ -190,7 +190,7 @@ In a merge request pipeline it also posts or updates one merge request note with
 
 ```yaml
 include:
-  - component: gitlab.com/sitelemetry/audit-action/audit@0.2.2
+  - component: gitlab.com/sitelemetry/audit-action/audit@~latest
     inputs:
       target: https://www.example.com
       fail_on: high
@@ -219,7 +219,7 @@ Catalog components must live in a project on the GitLab instance that uses them,
 
 1. Create the project `sitelemetry/audit-action` on gitlab.com (a project description and a `README.md` are required for the catalog) and push this repository to it, or set it up as a pull mirror of the GitHub repository.
 2. Enable **Settings > General > Visibility, project features, permissions > CI/CD Catalog project**.
-3. Add a release: tag a commit with a semantic version (`0.2.0`) and create the release from a pipeline job that uses the `release` keyword. Every such release publishes that version of `templates/audit.yml` to the catalog as `gitlab.com/sitelemetry/audit-action/audit@0.2.2`.
+3. Add a release: tag a commit with a semantic version (for example `v0.2.1`; the catalog shows the tag name, so include it as `audit@v0.2.1` or `audit@~latest`) and create the release from a pipeline job that uses the `release` keyword. Every such release publishes that version of `templates/audit.yml` to the catalog as `gitlab.com/sitelemetry/audit-action/audit@~latest`.
 
 The full walkthrough, including a release job and the dotenv outputs in downstream jobs, is in [docs/gitlab.md](docs/gitlab.md). Plan and quota facts are the same as above; the pricing link in GitLab reports carries `utm_source=gitlab-ci`.
 
