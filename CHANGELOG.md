@@ -1,3 +1,7 @@
+## 0.2.3 - 2026-09-21
+
+- Document the CI/CD Catalog component with its tag-based versions (audit@v0.2.x or audit@~latest) and add the GitHub-to-GitLab mirror workflow that publishes every tag to the catalog.
+
 ## 0.2.2 - 2026-09-21
 
 - Point the GitLab component references at the published project gitlab.com/sitelemetry/audit-action (component gitlab.com/sitelemetry/audit-action/audit).
