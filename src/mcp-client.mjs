@@ -1,6 +1,6 @@
 // Minimal MCP client over Streamable HTTP (JSON-RPC 2.0). Node built-ins only.
 
-export const ACTION_VERSION = '0.1.0';
+export const ACTION_VERSION = '0.2.0';
 export const CLIENT_INFO = Object.freeze({ name: 'sitelemetry-audit-action', version: ACTION_VERSION });
 const PROTOCOL_VERSION = '2025-06-18';
 
