@@ -1,6 +1,6 @@
 {
   "name": "sitelemetry-audit-action",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "GitHub Action and GitLab CI/CD component that run a Sitelemetry website audit and report SARIF, a GitLab security report, a summary and one pull or merge request comment.",
   "license": "MIT",

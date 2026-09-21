@@ -1,3 +1,7 @@
+## 0.2.2 - 2026-09-21
+
+- Point the GitLab component references at the published project gitlab.com/sitelemetry/audit-action (component gitlab.com/sitelemetry/audit-action/audit).
+
 ## 0.2.1 - 2026-09-21
 
 - Add a GitLab pipeline (.gitlab-ci.yml) for the gitlab.com mirror: tests on merge requests, the default branch and tags, and a release job that publishes semantic-version tags to the CI/CD Catalog.
