@@ -9,11 +9,18 @@ name: Mirror to GitLab
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    # Release tags only; the floating v0 tag travels with them (--tags pushes all).
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
   workflow_dispatch:
 
 permissions:
   contents: read
+
+# One mirror push at a time: a release pushes main, the version tag and the
+# floating tag within seconds, and concurrent force-pushes raced each other.
+concurrency:
+  group: mirror-gitlab
+  cancel-in-progress: false
 
 jobs:
   mirror:
@@ -42,6 +49,15 @@ jobs:
           GITLAB_MIRROR_TOKEN: ${{ secrets.GITLAB_MIRROR_TOKEN }}
         run: |
           git remote add gitlab "https://oauth2:${GITLAB_MIRROR_TOKEN}@gitlab.com/sitelemetry/audit-action.git"
-          git push --force gitlab refs/remotes/origin/main:refs/heads/main
-          git push --force gitlab --tags
+          push() {
+            local attempt
+            for attempt in 1 2 3; do
+              if git push --force gitlab "$@"; then return 0; fi
+              echo "push attempt ${attempt} failed; retrying in $((attempt * 15))s"
+              sleep $((attempt * 15))
+            done
+            return 1
+          }
+          push refs/remotes/origin/main:refs/heads/main
+          push --tags
           echo "Mirrored main and tags to gitlab.com/sitelemetry/audit-action." >> "$GITHUB_STEP_SUMMARY"
