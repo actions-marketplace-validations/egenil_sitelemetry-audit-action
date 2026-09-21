@@ -1,0 +1,15 @@
+{
+  "name": "sitelemetry-audit-action",
+  "version": "0.1.0",
+  "private": true,
+  "description": "GitHub Action that runs a Sitelemetry website audit and reports SARIF, a job summary and a pull request comment.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check src/run.mjs && node --check src/audit.mjs && node --check src/mcp-client.mjs && node --check src/outcome.mjs && node --check src/sarif.mjs && node --check src/report.mjs && node --check src/plans.mjs && node --check src/github.mjs"
+  }
+}

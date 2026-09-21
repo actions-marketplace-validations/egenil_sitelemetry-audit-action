@@ -1,0 +1,60 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "[Security audit - https://free.example]\nScore: 74/100 (C)\nFindings: 1 medium, 1 low (2 total) - 6 passing checks\n\nContext:\n- Audit coverage for: Free.\n- Additional included checks require ownership verification: http-methods, exposure, api-exposure."
+    }
+  ],
+  "structuredContent": {
+    "target": "https://free.example",
+    "kind": "Security audit",
+    "status": "partial",
+    "coverageStatus": "partial",
+    "score": 74,
+    "grade": "C",
+    "counts": { "critical": 0, "high": 0, "medium": 1, "low": 1, "info": 0 },
+    "total": 2,
+    "returnedFindings": 2,
+    "findingsTruncated": false,
+    "passingChecks": 6,
+    "auditDetails": {
+      "scope": {
+        "method": "public-signals",
+        "status": "partial",
+        "plan": "free",
+        "profile": "baseline",
+        "selectionMode": "public-unverified",
+        "selectedModules": ["dns", "dns-email", "rdap", "tls", "http-headers", "mitm-posture", "tech-fingerprint"],
+        "notIncludedModules": ["auth-surface", "supply-chain", "wordpress"],
+        "verificationRequiredModules": ["http-methods", "exposure", "api-exposure"],
+        "moduleResults": [
+          { "module": "dns", "status": "measured" },
+          { "module": "rdap", "status": "unavailable", "checkCount": 1, "findingCount": 0, "reasons": ["registry_timeout"] }
+        ]
+      },
+      "checks": { "counts": { "ok": 6, "warn": 2, "fail": 0, "unmeasured": 3 }, "total": 11, "items": [] }
+    },
+    "findings": [
+      {
+        "findingKey": "sf2:security-audit:id:dns-email.dmarc-missing:loc:aa11bb22cc33dd44ee55ff667788:occ:1",
+        "severity": "medium",
+        "title": "DMARC record is missing",
+        "evidence": "No _dmarc TXT record was found for free.example.",
+        "impact": "Receivers cannot verify that mail claiming to come from the domain is authorized.",
+        "remediation": "Publish a _dmarc TXT record starting with p=none and a reporting address, then tighten the policy.",
+        "category": "dns-email",
+        "location": ""
+      },
+      {
+        "findingKey": "sf2:security-audit:id:tls.short-certificate-lifetime:loc:aa11bb22cc33dd44ee55ff667788:occ:1",
+        "severity": "low",
+        "title": "TLS certificate expires in 9 days",
+        "evidence": "Affected location: https://free.example/\nCertificate notAfter is 9 days away.",
+        "impact": "An expired certificate blocks visitors with browser errors.",
+        "remediation": "Renew the certificate or enable automatic renewal.",
+        "category": "tls",
+        "location": "https://free.example/"
+      }
+    ]
+  }
+}

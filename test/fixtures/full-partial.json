@@ -1,0 +1,66 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "[Full audit - https://full.example]\nOverall score: 71/100\nTotal findings: 3 (1 high, 1 medium, 1 low)\n\nPillars:\n- Security: 80/100 (1 findings)\n- SEO: 62/100 (2 findings)\n- Performance: failed"
+    }
+  ],
+  "structuredContent": {
+    "target": "https://full.example",
+    "status": "partial",
+    "blended": 71,
+    "pillars": {
+      "Security": { "score": 80, "findings": 1 },
+      "SEO": { "score": 62, "findings": 2 }
+    },
+    "counts": { "critical": 0, "high": 1, "medium": 1, "low": 1, "info": 0 },
+    "total": 3,
+    "returnedFindings": 3,
+    "findingsTruncated": false,
+    "complete": false,
+    "failedPillars": [
+      { "pillar": "Performance", "error": "PageSpeed Insights was unavailable for this target." }
+    ],
+    "auditDetails": {
+      "pillars": {
+        "Security": { "scope": { "status": "measured", "plan": "professional", "selectedModules": ["dns", "tls"] } },
+        "SEO": { "scope": { "status": "measured", "pageCount": 8, "pageLimit": 15 } }
+      }
+    },
+    "findings": [
+      {
+        "pillar": "Security",
+        "findingKey": "sf2:security:id:tls.weak-cipher:loc:0011223344556677889900aabbcc:occ:1",
+        "severity": "high",
+        "title": "Weak TLS cipher suites are enabled",
+        "evidence": "Affected location: https://full.example/\nTLS_RSA_WITH_3DES_EDE_CBC_SHA was negotiated.",
+        "impact": "Legacy ciphers weaken transport encryption.",
+        "remediation": "Disable 3DES and RSA key exchange suites; prefer TLS 1.2+ AEAD suites.",
+        "category": "tls",
+        "location": "https://full.example/"
+      },
+      {
+        "pillar": "SEO",
+        "findingKey": "sf2:seo:id:meta.description-missing:loc:ddeeff00112233445566778899aa:occ:1",
+        "severity": "medium",
+        "title": "Meta description is missing",
+        "evidence": "Affected location: https://full.example/pricing\nNo meta description tag was found.",
+        "impact": "Search engines generate their own snippet, which is often less relevant.",
+        "remediation": "Add a unique meta description of 120 to 160 characters.",
+        "category": "meta",
+        "location": "https://full.example/pricing"
+      },
+      {
+        "pillar": "SEO",
+        "findingKey": "sf2:seo:id:meta.description-missing:loc:ddeeff00112233445566778899bb:occ:1",
+        "severity": "low",
+        "title": "Meta description is missing",
+        "evidence": "Affected location: https://full.example/about\nNo meta description tag was found.",
+        "impact": "Search engines generate their own snippet, which is often less relevant.",
+        "remediation": "Add a unique meta description of 120 to 160 characters.",
+        "category": "meta",
+        "location": "https://full.example/about"
+      }
+    ]
+  }
+}

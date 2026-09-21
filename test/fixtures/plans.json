@@ -1,0 +1,46 @@
+{
+  "plans": [
+    {
+      "id": "free",
+      "label": "Free",
+      "badge": "Security Preview",
+      "price": { "monthly": 0, "annual": 0, "currency": "USD" },
+      "auditKinds": ["security"],
+      "modules": ["dns", "dns-email", "rdap", "tls", "http-headers", "mitm-posture", "tech-fingerprint", "http-methods", "exposure", "api-exposure"],
+      "profiles": ["baseline"],
+      "moduleCount": 10,
+      "commercial": { "projects": 1, "securityScans": 10, "auditKinds": ["security"], "apiAccess": true, "moduleCount": 10 }
+    },
+    {
+      "id": "starter",
+      "label": "Starter",
+      "badge": "Core Audit",
+      "price": { "monthly": 49, "annual": 470, "currency": "USD" },
+      "auditKinds": ["full", "security", "seo", "ai", "accessibility", "performance", "integrations", "search-console"],
+      "modules": ["dns", "dns-email", "rdap", "tls", "http-headers", "mitm-posture", "tech-fingerprint", "http-methods", "exposure", "api-exposure", "wordpress", "ports", "port-intel"],
+      "profiles": ["passive", "baseline"],
+      "moduleCount": 13,
+      "commercial": { "projects": 1, "securityScans": 100, "auditKinds": ["full", "security", "seo", "ai", "accessibility", "performance", "integrations", "search-console"], "apiAccess": true, "moduleCount": 13 }
+    },
+    {
+      "id": "professional",
+      "label": "Professional",
+      "badge": "Growth Ops",
+      "price": { "monthly": 149, "annual": 1430, "currency": "USD" },
+      "auditKinds": ["full", "security", "seo", "ai", "accessibility", "performance", "integrations", "search-console"],
+      "profiles": ["passive", "baseline", "deep", "all"],
+      "moduleCount": 24,
+      "commercial": { "projects": 10, "securityScans": 2500, "apiAccess": true, "moduleCount": 24 }
+    },
+    {
+      "id": "enterprise",
+      "label": "Enterprise",
+      "badge": "Full Platform",
+      "price": { "monthly": 249, "annual": 2390, "currency": "USD" },
+      "auditKinds": ["full", "security", "seo", "ai", "accessibility", "performance", "integrations", "search-console"],
+      "profiles": ["passive", "baseline", "deep", "all"],
+      "moduleCount": 27,
+      "commercial": { "projects": 20, "securityScans": 25000, "apiAccess": true, "moduleCount": 27 }
+    }
+  ]
+}

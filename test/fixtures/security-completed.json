@@ -1,0 +1,78 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "[Security audit - https://ok.example]\nScore: 82/100 (B)\nFindings: 1 high, 1 medium, 1 low, 1 info (4 total) - 12 passing checks"
+    }
+  ],
+  "structuredContent": {
+    "target": "https://ok.example",
+    "kind": "Security audit",
+    "status": "completed",
+    "coverageStatus": "measured",
+    "score": 82,
+    "grade": "B",
+    "counts": { "critical": 0, "high": 1, "medium": 1, "low": 1, "info": 1 },
+    "total": 4,
+    "returnedFindings": 4,
+    "findingsTruncated": false,
+    "passingChecks": 12,
+    "auditDetails": {
+      "scope": {
+        "method": "public-signals",
+        "status": "measured",
+        "plan": "starter",
+        "profile": "baseline",
+        "selectedModules": ["dns", "tls", "http-headers", "exposure", "tech-fingerprint"],
+        "moduleResults": [
+          { "module": "dns", "status": "measured" },
+          { "module": "tls", "status": "measured" },
+          { "module": "http-headers", "status": "measured" }
+        ]
+      },
+      "checks": { "counts": { "ok": 12, "warn": 3, "fail": 1, "unmeasured": 0 }, "total": 16, "items": [] }
+    },
+    "findings": [
+      {
+        "findingKey": "sf2:security-audit:id:http-headers.hsts-missing:loc:1a2b3c4d5e6f7a8b9c0d1e2f3a4b:occ:1",
+        "severity": "high",
+        "title": "HSTS header is missing",
+        "evidence": "Affected location: https://ok.example/\nThe HTTPS response carried no Strict-Transport-Security header.",
+        "impact": "Browsers may still make a plain HTTP request first, which exposes sessions to downgrade attacks.",
+        "remediation": "Send Strict-Transport-Security: max-age=31536000; includeSubDomains on every HTTPS response.",
+        "category": "http-headers",
+        "location": "https://ok.example/"
+      },
+      {
+        "findingKey": "sf2:security-audit:id:http-headers.csp-missing:loc:1a2b3c4d5e6f7a8b9c0d1e2f3a4b:occ:1",
+        "severity": "medium",
+        "title": "Content-Security-Policy is not set",
+        "evidence": "Affected location: https://ok.example/\nNo Content-Security-Policy header was observed.",
+        "impact": "Injected scripts can run without restriction if any page accepts untrusted input.",
+        "remediation": "Add a Content-Security-Policy header that restricts script sources, starting in report-only mode.",
+        "category": "http-headers",
+        "location": "https://ok.example/"
+      },
+      {
+        "findingKey": "sf2:security-audit:issue:exposure:title-9f8e7d6c5b4a3210aabbccdd:loc:4d5e6f7a8b9c0d1e2f3a4b5c6d7e:occ:1",
+        "severity": "low",
+        "title": "robots.txt discloses an administrative path",
+        "evidence": "Affected location: /robots.txt\nDisallow: /admin",
+        "impact": "Disallow rules point crawlers and people at paths that may deserve extra protection.",
+        "remediation": "Protect the path with authentication and rate limiting; robots.txt is not an access control.",
+        "category": "exposure",
+        "location": "/robots.txt"
+      },
+      {
+        "findingKey": "sf2:security-audit:id:tech-fingerprint.server-version:loc:1a2b3c4d5e6f7a8b9c0d1e2f3a4b:occ:1",
+        "severity": "info",
+        "title": "Server header reveals the software version",
+        "evidence": "Server: nginx/1.18.0",
+        "impact": "Version disclosure helps attackers pick known exploits faster.",
+        "remediation": "Configure the web server to omit the version from the Server header.",
+        "category": "tech-fingerprint",
+        "location": ""
+      }
+    ]
+  }
+}

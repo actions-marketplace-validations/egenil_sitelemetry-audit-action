@@ -1,0 +1,89 @@
+name: 'Sitelemetry Audit'
+description: 'Run a Sitelemetry website audit (security, SEO, AI visibility, integrations, accessibility, performance or full) from CI. Produces SARIF, a job summary and a pull request comment.'
+author: 'Sitelemetry'
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  target:
+    description: 'Website URL or domain to audit. Audit only sites you own or are authorized to test.'
+    required: true
+  api-key:
+    description: 'Sitelemetry MCP API key (sign in at https://sitelemetry.com/app and open API key). Store it as a repository secret.'
+    required: true
+  audit:
+    description: 'Audit kind: security, seo, ai_visibility, integrations, accessibility, performance or full.'
+    required: false
+    default: 'security'
+  profile:
+    description: 'Optional security depth profile (passive, baseline, deep, all) for security and full audits. Must be included in the connected plan.'
+    required: false
+    default: ''
+  fail-on:
+    description: 'Fail the job when a finding at or above this severity is reported: none, low, medium, high or critical.'
+    required: false
+    default: 'high'
+  sarif-file:
+    description: 'Path of the SARIF 2.1.0 file to write, relative to the workspace.'
+    required: false
+    default: 'sitelemetry.sarif'
+  comment:
+    description: 'Post or update one pull request comment with the report when the event is pull_request and GITHUB_TOKEN is available (true or false).'
+    required: false
+    default: 'true'
+  base-url:
+    description: 'Sitelemetry base URL.'
+    required: false
+    default: 'https://sitelemetry.com'
+  timeout-minutes:
+    description: 'Total time budget for starting and polling the audit.'
+    required: false
+    default: '20'
+
+outputs:
+  score:
+    description: 'Measured score from 0 to 100 (empty when not measured).'
+    value: ${{ steps.audit.outputs.score }}
+  findings-total:
+    description: 'Total number of findings reported by the audit.'
+    value: ${{ steps.audit.outputs.findings-total }}
+  findings-critical:
+    description: 'Number of critical findings.'
+    value: ${{ steps.audit.outputs.findings-critical }}
+  findings-high:
+    description: 'Number of high findings.'
+    value: ${{ steps.audit.outputs.findings-high }}
+  sarif-file:
+    description: 'Absolute path of the SARIF file that was written.'
+    value: ${{ steps.audit.outputs.sarif-file }}
+  status:
+    description: 'completed, partial, blocked, quota_exhausted, plan_required or verification_required.'
+    value: ${{ steps.audit.outputs.status }}
+  report-url:
+    description: 'Link to the full report when the result contains one.'
+    value: ${{ steps.audit.outputs.report-url }}
+
+runs:
+  using: 'composite'
+  steps:
+    - id: audit
+      shell: bash
+      env:
+        INPUT_TARGET: ${{ inputs.target }}
+        INPUT_API_KEY: ${{ inputs.api-key }}
+        INPUT_AUDIT: ${{ inputs.audit }}
+        INPUT_PROFILE: ${{ inputs.profile }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_SARIF_FILE: ${{ inputs.sarif-file }}
+        INPUT_COMMENT: ${{ inputs.comment }}
+        INPUT_BASE_URL: ${{ inputs.base-url }}
+        INPUT_TIMEOUT_MINUTES: ${{ inputs.timeout-minutes }}
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        node_major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+        if [ "${node_major}" -lt 20 ]; then
+          echo "::error::Node.js 20 or newer is required (found: $(node --version 2>/dev/null || echo none)). Add actions/setup-node with node-version 24 before this step."
+          exit 1
+        fi
+        node "${{ github.action_path }}/src/run.mjs"
